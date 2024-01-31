@@ -18,6 +18,10 @@
 
 package com.wzhwayne.flink.demo.frauddetection;
 
+import org.apache.flink.api.common.state.ValueState;
+import org.apache.flink.api.common.state.ValueStateDescriptor;
+import org.apache.flink.api.common.typeinfo.Types;
+import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 import org.apache.flink.util.Collector;
 import org.apache.flink.walkthrough.common.entity.Alert;
@@ -34,15 +38,55 @@ public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert
 	private static final double LARGE_AMOUNT = 500.00;
 	private static final long ONE_MINUTE = 60 * 1000;
 
+	private transient ValueState<Boolean> flagState;
+	private transient ValueState<Long> timerState;
+
 	@Override
-	public void processElement(
-			Transaction transaction,
-			Context context,
-			Collector<Alert> collector) throws Exception {
+	public void open(Configuration parameters) throws Exception {
+		ValueStateDescriptor<Boolean> flagDescriptor = new ValueStateDescriptor<>("flag", Types.BOOLEAN);
+		this.flagState = this.getRuntimeContext().getState(flagDescriptor);
 
-		Alert alert = new Alert();
-		alert.setId(transaction.getAccountId());
+		ValueStateDescriptor<Long> timerDescriptor = new ValueStateDescriptor<>("timer-state", Types.LONG);
+		this.timerState = this.getRuntimeContext().getState(timerDescriptor);
+	}
 
-		collector.collect(alert);
+	@Override
+	public void processElement(Transaction transaction, Context context, Collector<Alert> collector) throws Exception {
+		Boolean lastTransactionWasSmall = this.flagState.value();
+
+		if (lastTransactionWasSmall != null) {
+			if (transaction.getAmount() > LARGE_AMOUNT) {
+				Alert alert = new Alert();
+				alert.setId(transaction.getAccountId());
+				collector.collect(alert);
+			}
+
+			this.cleanUp(context);
+		}
+
+		if (transaction.getAmount() < SMALL_AMOUNT) {
+			this.flagState.update(true);
+
+			long timer = context.timerService().currentProcessingTime() + ONE_MINUTE;
+			context.timerService().registerProcessingTimeTimer(timer);
+			timerState.update(timer);
+		}
+	}
+
+	@Override
+	public void onTimer(long timestamp, KeyedProcessFunction<Long, Transaction, Alert>.OnTimerContext ctx,
+			Collector<Alert> out) throws Exception {
+		this.timerState.clear();
+		this.flagState.clear();
+	}
+	
+	private void cleanUp(Context ctx) throws Exception {
+		// delete timer
+		Long timer = this.timerState.value();
+		ctx.timerService().deleteProcessingTimeTimer(timer);
+	
+		// clean up all state
+		timerState.clear();
+		flagState.clear();
 	}
 }
