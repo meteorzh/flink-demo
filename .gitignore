@@ -1,0 +1,13 @@
+**/.settings/
+**/.project
+**/.classpath
+**/target/
+**/.externalToolBuilders/
+**/CODETOOLS
+**/build/
+**/*.log
+**/.idea
+**/.factorypath
+**/.directory
+**/*.iml
+**/.vscode
