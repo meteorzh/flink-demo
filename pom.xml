@@ -32,6 +32,7 @@ under the License.
 	<modules>
 		<module>frauddetection</module>
 		<module>table-walkthrough</module>
+		<module>mysql-cdc</module>
 	</modules>
 
 	<properties>
